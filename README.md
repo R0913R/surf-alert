@@ -8,6 +8,9 @@ en stuurt een Telegram-bericht als er een goed surfvenster aankomt.
 - Per uur wordt gekeken of alles binnen de grenzen in `spots.toml` valt: golfhoogte, minimale periode,
   swellrichting, maximale wind en aflandige wind (of zo weinig wind dat de richting niet uitmaakt).
 - Minstens 2 goede daglichturen achter elkaar = een alert.
+- Per venster wordt een zekerheid berekend: het aandeel van de 51 ECMWF-ensembleruns met goede wind,
+  en hoeveel van de golfmodellen het venster goed vinden. De laagste van de twee telt;
+  onder `min_confidence` (standaard 60%) wordt de alert niet verstuurd.
 
 ## Instellen
 1. Maak een Telegram-bot via @BotFather en noteer de token.

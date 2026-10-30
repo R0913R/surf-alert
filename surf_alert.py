@@ -25,6 +25,7 @@ MARINE_VARS = ["wave_height", "wave_period", "wave_direction",
 # Grof maar 10 dagen vooruit; vult gaten van het fijnere kustmodel (dat ~4 dagen reikt).
 FALLBACK_WAVE_MODEL = "ecmwf_wam025"
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 COMPASS = ["N", "NNO", "NO", "ONO", "O", "OZO", "ZO", "ZZO",
            "Z", "ZZW", "ZW", "WZW", "W", "WNW", "NW", "NNW"]
 DAYS = ["ma", "di", "wo", "do", "vr", "za", "zo"]
@@ -118,19 +119,23 @@ def in_range(deg, rng):
     return lo <= deg <= hi if lo <= hi else deg >= lo or deg <= hi
 
 
-def is_good(h, spot):
-    if None in (h["wave_height"], h["swell_period"], h["swell_dir"], h["wind_kn"], h["wind_dir"]):
+def wave_ok(h, spot):
+    if None in (h["wave_height"], h["swell_period"], h["swell_dir"]):
         return False
     lo, hi = spot["wave_height"]
-    if not lo <= h["wave_height"] <= hi:
+    return (lo <= h["wave_height"] <= hi
+            and h["swell_period"] >= spot["swell_period_min"]
+            and in_range(h["swell_dir"], spot["swell_direction"]))
+
+
+def wind_ok(wind_kn, wind_dir, spot):
+    if wind_kn is None or wind_dir is None or wind_kn > spot["wind_max_kn"]:
         return False
-    if h["swell_period"] < spot["swell_period_min"]:
-        return False
-    if not in_range(h["swell_dir"], spot["swell_direction"]):
-        return False
-    if h["wind_kn"] > spot["wind_max_kn"]:
-        return False
-    return h["wind_kn"] <= spot["glassy_kn"] or in_range(h["wind_dir"], spot["offshore_wind"])
+    return wind_kn <= spot["glassy_kn"] or in_range(wind_dir, spot["offshore_wind"])
+
+
+def is_good(h, spot):
+    return wave_ok(h, spot) and wind_ok(h["wind_kn"], h["wind_dir"], spot)
 
 
 def good_windows(hours, spot, settings):
@@ -166,6 +171,86 @@ def is_daylight(h, settings):
     return settings["daylight_from"] <= h["time"].hour < settings["daylight_to"]
 
 
+def wind_confidence(ensemble, window, spot):
+    """Aandeel van alle ensemble-runs x uren in het venster met goede wind (0-1)."""
+    index = {t: i for i, t in enumerate(ensemble["time"])}
+    members = [k[len("wind_speed_10m"):] for k in ensemble if k.startswith("wind_speed_10m")]
+    good = total = 0
+    for h in window:
+        i = index.get(h["time"].isoformat(timespec="minutes"))
+        if i is None:
+            continue
+        for m in members:
+            speed = ensemble[f"wind_speed_10m{m}"][i]
+            direction = (ensemble.get(f"wind_direction_10m{m}") or [None] * (i + 1))[i]
+            if speed is None or direction is None:
+                continue
+            total += 1
+            good += wind_ok(speed, direction, spot)
+    return good / total if total else None
+
+
+def wave_agreement(model_hours, window, spot):
+    """Hoeveel golfmodellen het venster grotendeels (>= helft van de uren) goed vinden."""
+    times = {h["time"] for h in window}
+    agree = counted = 0
+    for hours in model_hours:
+        in_window = [h for h in hours if h["time"] in times and h["wave_height"] is not None]
+        if not in_window:
+            continue
+        counted += 1
+        agree += sum(wave_ok(h, spot) for h in in_window) * 2 >= len(in_window)
+    return agree, counted
+
+
+def confidence(wind_frac, wave):
+    """Zekerheid = de zwakste schakel van wind en golven, in procent."""
+    agree, counted = wave
+    parts = [p for p in (wind_frac, agree / counted if counted else None) if p is not None]
+    return round(100 * min(parts)) if parts else None
+
+
+def fetch_confidence_data(spot, settings):
+    """Haal wind-ensemble en losse golfmodellen op; wat faalt wordt overgeslagen."""
+    common = {
+        "latitude": spot["lat"],
+        "longitude": spot["lon"],
+        "forecast_days": settings["forecast_days"],
+        "timezone": settings["timezone"],
+    }
+    ensemble = None
+    try:
+        ensemble = get_json(ENSEMBLE_URL, common | {
+            "models": settings.get("ensemble_model", "ecmwf_ifs025"),
+            "hourly": "wind_speed_10m,wind_direction_10m",
+            "wind_speed_unit": "kn",
+        })["hourly"]
+    except Exception as e:
+        print(f"Wind-ensemble mislukt bij {spot['name']}: {e}", file=sys.stderr)
+
+    model_hours = []
+    for model in settings.get("wave_models", []):
+        params = common | {"hourly": ",".join(MARINE_VARS), "models": model, "cell_selection": "sea"}
+        try:
+            marine = get_json(MARINE_URL, params)["hourly"]
+            if all(v is None for v in marine["wave_height"]):
+                lat, lon = spot.get("fallback_point", [spot["lat"], spot["lon"] - 0.25])
+                marine = get_json(MARINE_URL, params | {"latitude": lat, "longitude": lon})["hourly"]
+        except Exception as e:
+            print(f"Golfmodel {model} mislukt bij {spot['name']}: {e}", file=sys.stderr)
+            continue
+        model_hours.append(marine_hours(marine))
+    return ensemble, model_hours
+
+
+def marine_hours(marine):
+    """Zet marinedata om naar uren, zonder wind (voor het vergelijken van golfmodellen)."""
+    times = marine["time"]
+    no_wind = {"time": times, "wind_speed_10m": [None] * len(times),
+               "wind_direction_10m": [None] * len(times), "wind_gusts_10m": [None] * len(times)}
+    return merge_hourly(marine, no_wind)
+
+
 def describe(spot_name, window):
     start, end = window[0]["time"], window[-1]["time"]
     wave = avg([h["wave_height"] for h in window])
@@ -176,6 +261,18 @@ def describe(spot_name, window):
     return (f"🏄 *{spot_name}* {day_label(start)} {start:%H}:00–{end.hour + 1:02d}:00\n"
             f"   golven {wave:.1f} m, swell {period:.0f} s uit {compass(swell_dir)}, "
             f"wind {wind:.0f} kn uit {compass(wind_dir)}")
+
+
+def confidence_line(pct, wind, wave):
+    if pct is None:
+        return "\n   zekerheid onbekend"
+    agree, counted = wave
+    details = []
+    if wind is not None:
+        details.append(f"wind {round(100 * wind)}%")
+    if counted:
+        details.append(f"golven {agree}/{counted} modellen")
+    return f"\n   zekerheid {pct}% ({', '.join(details)})"
 
 
 def week_summary(spot, hours, settings):
@@ -227,8 +324,19 @@ def main():
             continue
         if args.weekly:
             blocks.append(week_summary(spot, hours, settings))
-        else:
-            blocks += [describe(spot["name"], w) for w in good_windows(hours, spot, settings)]
+            continue
+        windows = good_windows(hours, spot, settings)
+        if not windows:
+            continue
+        ensemble, model_hours = fetch_confidence_data(spot, settings)
+        for w in windows:
+            wind = wind_confidence(ensemble, w, spot) if ensemble else None
+            wave = wave_agreement(model_hours, w, spot)
+            pct = confidence(wind, wave)
+            if pct is not None and pct < settings.get("min_confidence", 0):
+                print(f"Overgeslagen ({pct}% zeker): {describe(spot['name'], w)}", file=sys.stderr)
+                continue
+            blocks.append(describe(spot["name"], w) + confidence_line(pct, wind, wave))
 
     if args.weekly:
         if not blocks:

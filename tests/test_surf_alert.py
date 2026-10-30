@@ -88,3 +88,25 @@ def test_missing_swell_falls_back_to_total_wave():
     weather = {"time": times, "wind_speed_10m": [8], "wind_direction_10m": [20], "wind_gusts_10m": [12]}
     h = sa.merge_hourly(marine, weather)[0]
     assert (h["swell_period"], h["swell_dir"]) == (7.0, 320.0)
+
+
+def test_wind_confidence_counts_members_per_hour():
+    window = make_hours([(7, 1.2, 8, 300, 10, 90), (8, 1.2, 8, 300, 10, 90)])
+    ensemble = {
+        "time": ["2026-10-30T07:00", "2026-10-30T08:00"],
+        "wind_speed_10m": [10, 10], "wind_direction_10m": [90, 90],                  # goed
+        "wind_speed_10m_member01": [10, 20], "wind_direction_10m_member01": [90, 90],  # 1 van 2
+        "wind_speed_10m_member02": [10, 10], "wind_direction_10m_member02": [270, 270],  # aanlandig
+        "wind_speed_10m_member03": [4, None], "wind_direction_10m_member03": [270, None],  # glassy
+    }
+    assert sa.wind_confidence(ensemble, window, SPOT) == 4 / 7
+
+
+def test_wave_agreement_and_confidence():
+    window = make_hours([(7, 1.2, 8, 300, 10, 90), (8, 1.2, 8, 300, 10, 90)])
+    flat = make_hours([(7, 0.2, 8, 300, 10, 90), (8, 0.2, 8, 300, 10, 90)])
+    wave = sa.wave_agreement([window, window, flat], window, SPOT)
+    assert wave == (2, 3)
+    assert sa.confidence(0.9, wave) == 67
+    assert sa.confidence(None, (0, 0)) is None
+    assert "zekerheid 67% (wind 90%, golven 2/3 modellen)" in sa.confidence_line(67, 0.9, wave)
