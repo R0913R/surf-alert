@@ -1,0 +1,43 @@
+# Surfspots en wat "goed" is per spot.
+# Richtingen in graden waar het vandaan komt (0 = N, 90 = O, 180 = Z, 270 = W).
+# Een bereik als [200, 20] loopt over noord heen (ZW t/m NNO).
+
+[settings]
+forecast_days = 3
+daylight_from = 7      # alleen uren tussen 07:00 en 20:00 tellen mee
+daylight_to = 20
+min_window_hours = 2   # minimaal zoveel goede uren achter elkaar voor een alert
+timezone = "Europe/Amsterdam"
+
+[[spot]]
+name = "Scheveningen Noord"
+lat = 52.11
+lon = 4.22                      # iets uit de kust, zodat het golfmodel zee ziet
+wave_height = [0.8, 2.5]        # m, min en max
+swell_period_min = 6            # s
+swell_direction = [250, 20]     # WZW t/m NNO
+wind_max_kn = 15
+offshore_wind = [45, 160]       # NO t/m ZZO is aflandig
+glassy_kn = 6                   # onder deze windkracht maakt richting niet uit
+
+[[spot]]
+name = "Wijk aan Zee"
+lat = 52.49
+lon = 4.52
+wave_height = [0.8, 2.5]
+swell_period_min = 6
+swell_direction = [250, 20]
+wind_max_kn = 15
+offshore_wind = [45, 160]
+glassy_kn = 6
+
+[[spot]]
+name = "Bloemendaal aan Zee"
+lat = 52.41
+lon = 4.48
+wave_height = [0.8, 2.5]
+swell_period_min = 6
+swell_direction = [250, 20]
+wind_max_kn = 15
+offshore_wind = [45, 160]
+glassy_kn = 6
