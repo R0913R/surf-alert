@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 MARINE_URL = "https://marine-api.open-meteo.com/v1/marine"
 MARINE_VARS = ["wave_height", "wave_period", "wave_direction",
@@ -325,7 +326,8 @@ def main():
         if args.weekly:
             blocks.append(week_summary(spot, hours, settings))
             continue
-        windows = good_windows(hours, spot, settings)
+        now = datetime.now(ZoneInfo(settings["timezone"])).replace(tzinfo=None)
+        windows = good_windows([h for h in hours if h["time"] >= now], spot, settings)
         if not windows:
             continue
         ensemble, model_hours = fetch_confidence_data(spot, settings)
