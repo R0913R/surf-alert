@@ -20,10 +20,10 @@ name = "Scheveningen Noord"
 lat = 52.11
 lon = 4.22                      # iets uit de kust, zodat het golfmodel zee ziet
 wave_height = [0.8, 2.5]        # m, min en max
-swell_period_min = 6            # s
+swell_period_min = 5            # s
 swell_direction = [250, 20]     # WZW t/m NNO
 wind_max_kn = 15
-offshore_wind = [45, 160]       # NO t/m ZZO is aflandig
+offshore_wind = [10, 160]       # NNO t/m ZZO telt als goed
 glassy_kn = 6                   # onder deze windkracht maakt richting niet uit
 
 [[spot]]
@@ -31,10 +31,10 @@ name = "Wijk aan Zee"
 lat = 52.49
 lon = 4.52
 wave_height = [0.8, 2.5]
-swell_period_min = 6
+swell_period_min = 5
 swell_direction = [250, 20]
 wind_max_kn = 15
-offshore_wind = [45, 160]
+offshore_wind = [10, 160]
 glassy_kn = 6
 
 [[spot]]
@@ -42,8 +42,8 @@ name = "Bloemendaal aan Zee"
 lat = 52.41
 lon = 4.48
 wave_height = [0.8, 2.5]
-swell_period_min = 6
+swell_period_min = 5
 swell_direction = [250, 20]
 wind_max_kn = 15
-offshore_wind = [45, 160]
+offshore_wind = [10, 160]
 glassy_kn = 6
